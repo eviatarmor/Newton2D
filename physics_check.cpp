@@ -71,6 +71,19 @@ int main()
     const float gap = bot.getPosition().y - top.getPosition().y;
     expect(gap + 0.5f >= top.getRadius() + bot.getRadius(), "stacked circles do not sink through each other");
 
+    Newton2D::Rigidbody<Newton2D::QuadShape> tilted(
+        Newton2D::VecF(0.f, -80.f), 70u, 48u,
+        Newton2D::Angle(0.4f), Newton2D::VecF(0.f, 0.f), 2.f);
+    Newton2D::Rigidbody<Newton2D::QuadShape> floor2(
+        Newton2D::VecF(0.f, 40.f), 400u, 20u, 0.f);
+    Newton2D::PhysicsEngine settle;
+    settle.push_back(tilted);
+    settle.push_back(floor2);
+    for (int i = 0; i < 480; ++i)
+        settle.loop(1.f / 60.f, 400.f);
+    expect(std::fabs(tilted.getAngle().radians()) < 0.12f,
+           "tilted box rotates to rest flat on the ground");
+
     if (fails)
     {
         std::cerr << fails << " failed\n";

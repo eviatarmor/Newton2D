@@ -466,18 +466,33 @@ namespace Newton2D {
             }
 
             static void apply_velocity_response(BaseRigidbody& a, BaseRigidbody& b,
-                                                const VecF& n, const VecF&)
+                                                const VecF& n, const VecF& contact)
             {
                 const float ima = inv_mass(a);
                 const float imb = inv_mass(b);
-                const float sum = ima + imb;
-                if (sum <= 0.f)
+                const float iia = inv_inertia(a);
+                const float iib = inv_inertia(b);
+                if (ima + imb + iia + iib <= 0.f)
                     return;
 
+                const VecF pa = a.getPosition();
+                const VecF pb = b.getPosition();
                 VecF va = a.getLinearVelocity();
                 VecF vb = b.getLinearVelocity();
+                float wa = a.getAngularVelocity();
+                float wb = b.getAngularVelocity();
 
-                const float rvn = (vb.x - va.x) * n.x + (vb.y - va.y) * n.y;
+                const VecF ra(contact.x - pa.x, contact.y - pa.y);
+                const VecF rb(contact.x - pb.x, contact.y - pb.y);
+
+                auto rel_vel = [&]() {
+                    const VecF va_c = VecF(va.x, va.y) + cross(wa, ra);
+                    const VecF vb_c = VecF(vb.x, vb.y) + cross(wb, rb);
+                    return VecF(vb_c.x - va_c.x, vb_c.y - va_c.y);
+                };
+
+                VecF rv = rel_vel();
+                const float rvn = rv.x * n.x + rv.y * n.y;
                 if (rvn > 0.f)
                     return;
 
@@ -485,13 +500,50 @@ namespace Newton2D {
                 if (std::fabs(rvn) < rest_threshold)
                     e = 0.f;
 
-                const float j = -(1.f + e) * rvn / sum;
+                const float ran = cross(ra, n);
+                const float rbn = cross(rb, n);
+                const float denom = ima + imb + ran * ran * iia + rbn * rbn * iib;
+                if (denom <= 0.f)
+                    return;
+
+                const float j = -(1.f + e) * rvn / denom;
                 va.x -= ima * j * n.x;
                 va.y -= ima * j * n.y;
                 vb.x += imb * j * n.x;
                 vb.y += imb * j * n.y;
+                wa -= iia * cross(ra, VecF(j * n.x, j * n.y));
+                wb += iib * cross(rb, VecF(j * n.x, j * n.y));
+
+                rv = rel_vel();
+                const float vn = rv.x * n.x + rv.y * n.y;
+                VecF tangent(rv.x - vn * n.x, rv.y - vn * n.y);
+                const float tmag = sqrtf(tangent.x * tangent.x + tangent.y * tangent.y);
+                if (tmag > 1e-5f)
+                {
+                    tangent.x /= tmag;
+                    tangent.y /= tmag;
+                    const float vt = rv.x * tangent.x + rv.y * tangent.y;
+                    const float rat = cross(ra, tangent);
+                    const float rbt = cross(rb, tangent);
+                    const float tdenom = ima + imb + rat * rat * iia + rbt * rbt * iib;
+                    if (tdenom > 0.f)
+                    {
+                        float jt = -vt / tdenom;
+                        const float max_jt = friction * std::fabs(j);
+                        jt = std::clamp(jt, -max_jt, max_jt);
+                        va.x -= ima * jt * tangent.x;
+                        va.y -= ima * jt * tangent.y;
+                        vb.x += imb * jt * tangent.x;
+                        vb.y += imb * jt * tangent.y;
+                        wa -= iia * cross(ra, VecF(jt * tangent.x, jt * tangent.y));
+                        wb += iib * cross(rb, VecF(jt * tangent.x, jt * tangent.y));
+                    }
+                }
+
                 a.setLinearVelocity(va);
                 b.setLinearVelocity(vb);
+                a.setAngularVelocity(wa);
+                b.setAngularVelocity(wb);
             }
 
             static Manifold circle_circle(BaseRigidbody& a, const CircleShape& sa,

@@ -48,6 +48,7 @@
 #define PHYSICS_ENGINE_HPP
 #pragma once
 
+#include <cmath>
 #include <functional>
 #include <vector>
 
@@ -79,6 +80,11 @@ namespace Newton2D
                 v.y += gravity * dt;
                 rb.setLinearVelocity(v);
 
+                float omega = rb.getAngularVelocity();
+                rb.setAngle(Angle(rb.getAngle().radians() + omega * dt));
+                omega *= std::exp(-1.8f * dt);
+                rb.setAngularVelocity(omega);
+
                 VecF p = rb.getPosition();
                 p.x += v.x * dt;
                 p.y += v.y * dt;
@@ -91,8 +97,24 @@ namespace Newton2D
                 for (std::size_t i = 0; i < rigids.size(); ++i)
                 {
                     for (std::size_t j = i + 1; j < rigids.size(); ++j)
-                        impl::CollisionResolution::resolve(rigids[i].get(), rigids[j].get());
+                        impl::CollisionResolution::separate(rigids[i].get(), rigids[j].get());
                 }
+            }
+            for (int k = 0; k < 2; ++k)
+            {
+                for (std::size_t i = 0; i < rigids.size(); ++i)
+                {
+                    for (std::size_t j = i + 1; j < rigids.size(); ++j)
+                        impl::CollisionResolution::bounce(rigids[i].get(), rigids[j].get());
+                }
+            }
+
+            for (auto& ref : rigids)
+            {
+                float omega = ref.get().getAngularVelocity();
+                if (omega > 20.f) omega = 20.f;
+                if (omega < -20.f) omega = -20.f;
+                ref.get().setAngularVelocity(omega);
             }
         }
     
