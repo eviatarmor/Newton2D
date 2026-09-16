@@ -48,132 +48,183 @@
 #define COLLISION_RESOLUTION_HPP
 #pragma once
 
-#include <limits>
 #include <algorithm>
-#include <cassert>
+#include <cmath>
 
-#include "Structures.hpp"
 #include "Core.hpp"
 #include "Rigidbody.hpp"
+#include "Structures.hpp"
 
-// namespace Newton2D {
+namespace Newton2D {
+    namespace impl {
 
-//     namespace impl {
+        class CollisionResolution
+        {
+        public:
+            static constexpr float restitution        = 0.4f;
+            static constexpr float correction_percent = 0.8f;
+            static constexpr float slop               = 0.05f;
+            static constexpr float rest_threshold     = 25.f;
 
-    //     class CollisionResolution
-    //     {
-    //     private:
-    //         // Circle - Circle Detection
-    //         template<typename T>
-    //         bool circle_circle_collision(const Rigidbody<T>& rb1, const Rigidbody<T>& rb2) 
-    //         {
-    //             const auto dx = rb1.particle.position.x - rb2.particle.position.x;
-    //             const auto dy = rb1.particle.position.y - rb2.particle.position.y;
-    //             const float dist = sqrtf(dx * dx + dy * dy);
+            static void resolve(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                auto* ca = dynamic_cast<CircleShape*>(a.shape.get());
+                auto* cb = dynamic_cast<CircleShape*>(b.shape.get());
+                auto* qa = dynamic_cast<QuadShape*>(a.shape.get());
+                auto* qb = dynamic_cast<QuadShape*>(b.shape.get());
 
-    //             m_overlap = dist <= rb1.shape.circle.radius + rb2.shape.circle.radius;
+                if (ca && cb)
+                    circle_circle(a, *ca, b, *cb);
+                else if (ca && qb)
+                    circle_quad(a, *ca, b, *qb);
+                else if (qa && cb)
+                    circle_quad(b, *cb, a, *qa);
+            }
 
-    //             if(m_overlap)
-    //             {
-    //                 const float overlap = OVERLAP_FIX * (dist - rb1.shape.circle.radius - rb2.shape.circle.radius);
+        private:
+            static float inv_mass(const BaseRigidbody& rb)
+            {
+                const float m = rb.getMass();
+                return m > 0.f ? 1.f / m : 0.f;
+            }
 
-    //                 rb1_overlap_fix.x = -(overlap * dx / dist);
-    //                 rb1_overlap_fix.y = -(overlap * dy / dist);
-    //                 rb2_overlap_fix.x =  (overlap * dx / dist);
-    //                 rb2_overlap_fix.y =  (overlap * dy / dist);
-    //             }
-    //             else
-    //             {
-    //                 rb1_overlap_fix.x = 0.f;
-    //                 rb1_overlap_fix.y = 0.f;
-    //                 rb2_overlap_fix.x = 0.f;
-    //                 rb2_overlap_fix.y = 0.f;
-    //             }
-    //         }
+            static void apply_positional_correction(BaseRigidbody& a, BaseRigidbody& b,
+                                                    const VecF& n, float penetration)
+            {
+                const float ima = inv_mass(a);
+                const float imb = inv_mass(b);
+                const float sum = ima + imb;
+                if (sum <= 0.f)
+                    return;
 
-    //         // Polygon - Polygon Detection
-    //         // Separating Axis Theorem: 
-    //         // https://gamedevelopment.tutsplus.com/tutorials/collision-detection-using-the-separating-axis-theorem--gamedev-169
-    //         template<typename T>
-    //         bool polygon_polygon_collision(const Rigidbody<T>& rb1, const Rigidbody<T>& rb2)
-    //         {
-    //             float overlap = std::numeric_limits<float>::infinity();
+                const float mag = std::max(penetration - slop, 0.f) / sum * correction_percent;
+                VecF pa = a.getPosition();
+                VecF pb = b.getPosition();
+                pa.x -= n.x * mag * ima;
+                pa.y -= n.y * mag * ima;
+                pb.x += n.x * mag * imb;
+                pb.y += n.y * mag * imb;
+                a.setPosition(pa);
+                b.setPosition(pb);
+            }
 
-    //             for(size_t i = 0; i < rb1.shape.poly.points.size(); i++)
-    //             {
-    //                 auto current = transform_polygon_point(rb1.getPosition(), rb1.shape.poly.points[i], rb1.particle.angle);
-    //                 auto next    = transform_polygon_point(rb1.getPosition(), rb1.shape.poly.points[(i + 1) % rb1.shape.poly.points.size()], rb1.particle.angle);
-    //                 auto edge    = next - current;
+            static void apply_velocity_response(BaseRigidbody& a, BaseRigidbody& b, const VecF& n)
+            {
+                const float ima = inv_mass(a);
+                const float imb = inv_mass(b);
+                const float sum = ima + imb;
+                if (sum <= 0.f)
+                    return;
 
-    //                 auto axis = VecF::tan(edge);
+                VecF va = a.getLinearVelocity();
+                VecF vb = b.getLinearVelocity();
 
-    //                 auto rb1_max_proj = -std::numeric_limits<float>::infinity();
-    //                 auto rb1_min_proj =  std::numeric_limits<float>::infinity();
+                const float rvn = (vb.x - va.x) * n.x + (vb.y - va.y) * n.y;
+                if (rvn > 0.f)
+                    return;
 
-    //                 for(size_t p = 0; p < rb1.shape.poly.points.size(); p++) 
-    //                 {
-    //                     auto vec = transform_polygon_point(rb1.getPosition(), rb1.shape.poly.points[p], rb1.particle.angle);
-    //                     auto proj = VecF::dot(vec, axis);
+                float e = restitution;
+                if (std::fabs(rvn) < rest_threshold)
+                    e = 0.f;
 
-    //                     rb1_max_proj = std::max(rb1_max_proj, proj);
-    //                     rb1_min_proj = std::min(rb1_min_proj, proj);
-    //                 }
+                const float j = -(1.f + e) * rvn / sum;
+                va.x -= ima * j * n.x;
+                va.y -= ima * j * n.y;
+                vb.x += imb * j * n.x;
+                vb.y += imb * j * n.y;
+                a.setLinearVelocity(va);
+                b.setLinearVelocity(vb);
+            }
 
-    //                 auto rb2_max_proj = -std::numeric_limits<float>::infinity();
-    //                 auto rb2_min_proj =  std::numeric_limits<float>::infinity();
+            static void circle_circle(BaseRigidbody& a, const CircleShape& sa,
+                                      BaseRigidbody& b, const CircleShape& sb)
+            {
+                const VecF pa = a.getPosition();
+                const VecF pb = b.getPosition();
+                const float dx = pb.x - pa.x;
+                const float dy = pb.y - pa.y;
+                const float dist = sqrtf(dx * dx + dy * dy);
+                const float min_dist = sa.radius + sb.radius;
 
-    //                 for(size_t p = 0; p < rb2.shape.poly.points.size(); p++) 
-    //                 {
-    //                     auto vec = transform_polygon_point(rb2.getPosition(), rb2.shape.poly.points[p], rb2.particle.angle);
-    //                     auto proj = VecF::dot(vec, axis);
+                if (dist >= min_dist)
+                    return;
 
-    //                     rb2_max_proj = std::max(rb2_max_proj, proj);
-    //                     rb2_min_proj = std::min(rb2_min_proj, proj);
-    //                 }
+                VecF n;
+                if (dist > 1e-6f)
+                {
+                    n.x = dx / dist;
+                    n.y = dy / dist;
+                }
+                else
+                {
+                    n.x = 0.f;
+                    n.y = -1.f;
+                }
 
-    //                 overlap = std::min(std::min(rb1_max_proj, rb2_max_proj) - std::max(rb1_min_proj, rb2_min_proj), overlap);
+                apply_positional_correction(a, b, n, min_dist - dist);
+                apply_velocity_response(a, b, n);
+            }
 
-    //                 if(rb1_max_proj < rb2_min_proj || rb1_min_proj > rb2_max_proj) 
-    //                 {
-    //                     rb1_overlap_fix.x = 0.f;
-    //                     rb1_overlap_fix.y = 0.f;
-    //                     rb2_overlap_fix.x = 0.f;
-    //                     rb2_overlap_fix.y = 0.f;
+            static void circle_quad(BaseRigidbody& circle_rb, const CircleShape& circle,
+                                    BaseRigidbody& quad_rb, const QuadShape& quad)
+            {
+                const VecF c = circle_rb.getPosition();
+                const VecF q = quad_rb.getPosition();
+                const float hw = static_cast<float>(quad.width)  * 0.5f;
+                const float hh = static_cast<float>(quad.height) * 0.5f;
+                const float left   = q.x - hw;
+                const float right  = q.x + hw;
+                const float top    = q.y - hh;
+                const float bottom = q.y + hh;
 
-    //                     return false;
-    //                 }
-    //             }
+                const bool inside = c.x > left && c.x < right && c.y > top && c.y < bottom;
 
-    //             const auto dx = rb1.particle.position.x - rb2.particle.position.x;
-    //             const auto dy = rb1.particle.position.y - rb2.particle.position.y;
-    //             const float dist = sqrtf(dx * dx + dy * dy);
+                VecF n;
+                float penetration = 0.f;
 
-    //             rb1_overlap_fix.x = -(OVERLAP_FIX * overlap * dx / dist);
-    //             rb1_overlap_fix.y = -(OVERLAP_FIX * overlap * dy / dist);
-    //             rb2_overlap_fix.x =  (OVERLAP_FIX * overlap * dx / dist);
-    //             rb2_overlap_fix.y =  (OVERLAP_FIX * overlap * dy / dist);
+                if (inside)
+                {
+                    const float dl = c.x - left;
+                    const float dr = right - c.x;
+                    const float dt = c.y - top;
+                    const float db = bottom - c.y;
+                    const float m = std::min(std::min(dl, dr), std::min(dt, db));
 
-    //             return true;
-    //         }
+                    if (m == dl)      { n = VecF(-1.f,  0.f); penetration = circle.radius + dl; }
+                    else if (m == dr) { n = VecF( 1.f,  0.f); penetration = circle.radius + dr; }
+                    else if (m == dt) { n = VecF( 0.f, -1.f); penetration = circle.radius + dt; }
+                    else              { n = VecF( 0.f,  1.f); penetration = circle.radius + db; }
+                }
+                else
+                {
+                    const float closest_x = std::clamp(c.x, left, right);
+                    const float closest_y = std::clamp(c.y, top, bottom);
+                    const float dx = c.x - closest_x;
+                    const float dy = c.y - closest_y;
+                    const float dist = sqrtf(dx * dx + dy * dy);
 
-    //     public:
-    //         CollisionResolution(const Rigidbody& rb1, const Rigidbody& rb2)
-    //         {
-    //             if(rb1.type == Rigidbody::ShapeType::Circle && rb2.type == Rigidbody::ShapeType::Circle)
-    //                 circle_circle_collision(rb1, rb2);
-    //             else
-    //                 polygon_polygon_collision(rb1, rb2);
-    //         }
+                    if (dist >= circle.radius)
+                        return;
 
-    //         VecF rb1_overlap_fix, rb2_overlap_fix;
-    //         bool m_overlap;
-        
-    //     private:
-    //         static constexpr float OVERLAP_FIX = 0.1f;
-    //     };
-    // } // impl
+                    if (dist > 1e-6f)
+                    {
+                        n.x = dx / dist;
+                        n.y = dy / dist;
+                    }
+                    else
+                    {
+                        n.x = 0.f;
+                        n.y = -1.f;
+                    }
+                    penetration = circle.radius - dist;
+                }
 
+                apply_positional_correction(quad_rb, circle_rb, n, penetration);
+                apply_velocity_response(quad_rb, circle_rb, n);
+            }
+        };
 
-// } // Newton2D
+    } // impl
+} // Newton2D
 
 #endif // COLLISION_RESOLUTION_HPP
