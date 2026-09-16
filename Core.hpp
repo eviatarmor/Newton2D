@@ -72,9 +72,19 @@ namespace Newton2D {
         // https://imada.sdu.dk/~rolf/Edu/DM815/E10/2dcollisions.pdf
         void conservation_of_momentum(const VecF& pos1, const VecF& v1, float m1,
                                     const VecF& pos2, const VecF& v2, float m2,
-                                    VecF& nv1, VecF nv2)
+                                    VecF& nv1, VecF& nv2)
         {
-            VecF norm = VecF::norm(VecF(pos2.x - pos1.x, pos2.y - pos1.y));
+            const float dx = pos2.x - pos1.x;
+            const float dy = pos2.y - pos1.y;
+            const float mag = sqrtf(dx * dx + dy * dy);
+            if (mag <= 0.f || (m1 + m2) == 0.f)
+            {
+                nv1 = v1;
+                nv2 = v2;
+                return;
+            }
+
+            VecF norm = VecF::norm(VecF(dx, dy));
             VecF tan  = norm.tan();
 
             const float dot_tan1 = VecF::dot(v1, tan);

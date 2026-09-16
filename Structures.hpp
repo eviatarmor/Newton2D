@@ -62,8 +62,8 @@ namespace Newton2D {
     {
         virtual ~BaseShape() = default;
 
-        float moment_of_inertia;
-        float mass;
+        float moment_of_inertia = 0.f;
+        float mass = 1.f;
     }; // BaseShape
 
     // ----------------------------------------------------------------------- //
@@ -87,7 +87,8 @@ namespace Newton2D {
         QuadShape(unsigned int w, unsigned h) 
             : width(w), height(h) {}
 
-        unsigned int width, height;
+        unsigned int width = 0;
+        unsigned int height = 0;
     }; // QuadShape
 
     // ----------------------------------------------------------------------- //
@@ -111,16 +112,16 @@ namespace Newton2D {
         CircleShape(float r) 
             : radius(r) {}
 
-        float radius;
+        float radius = 0.f;
     }; // CircleShape
 
     // ----------------------------------------------------------------------- //
 
     struct Particle
     {
-        VecF  pos;   // position
-        VecF  lvel;  // linear velocity
-        Angle angle; // orientation
+        VecF  pos{};   // position
+        VecF  lvel{};  // linear velocity
+        Angle angle{}; // orientation
     }; // Particle
 
 }

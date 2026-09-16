@@ -50,7 +50,6 @@
 
 #include <type_traits>
 #include <cmath>
-#include <SFML/Graphics.hpp>
 
 namespace Newton2D {
     
@@ -58,7 +57,7 @@ namespace Newton2D {
     template<typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value>::type>
     struct Vector
     {
-        T x, y;
+        T x{}, y{};
 
         Vector() = default;
 
@@ -150,14 +149,14 @@ namespace Newton2D {
         /*
          *   return true if both vectors are the same.
          */
-        bool operator==(const Vector<T>& other) {
-            return x == other.x && y = other.y;
+        bool operator==(const Vector<T>& other) const {
+            return x == other.x && y == other.y;
         }
 
         /*
          *   return true if both vectors are different.
          */
-        bool operator!=(const Vector<T>& other) {
+        bool operator!=(const Vector<T>& other) const {
             return !(*this == other);
         }
 
