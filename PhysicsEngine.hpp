@@ -48,6 +48,9 @@
 #define PHYSICS_ENGINE_HPP
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #include "Rigidbody.hpp"
 
 namespace Newton2D
@@ -67,7 +70,7 @@ namespace Newton2D
         }
     
     private:
-        std::vector<impl::BaseRigidbody&> rigids;
+        std::vector<std::reference_wrapper<impl::BaseRigidbody>> rigids;
     };
 }
 

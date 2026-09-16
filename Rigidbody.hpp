@@ -121,6 +121,7 @@ namespace Newton2D {
             shape = std::make_unique<Type>(radius);
 
             setPosition(position);
+            setMass(mass);
         }
 
         Rigidbody(VecF position, float radius, VecF velocity, float mass) 
@@ -129,6 +130,7 @@ namespace Newton2D {
 
             setPosition(position);
             setLinearVelocity(velocity);
+            setMass(mass);
         }
 
         void  setRadius(float radius) { getDerivedShape().radius = radius; }
@@ -162,6 +164,7 @@ namespace Newton2D {
             shape = std::make_unique<Type>(width, height); 
 
             setPosition(position);
+            setMass(mass);
         }
 
         Rigidbody(VecF position, unsigned int width, unsigned int height, VecF velocity, float mass) 
@@ -170,6 +173,7 @@ namespace Newton2D {
 
             setPosition(position);
             setLinearVelocity(velocity);
+            setMass(mass);
         }
         
         Rigidbody(VecF position, unsigned int width, unsigned int height, Angle angle, VecF velocity, float mass) 
@@ -179,6 +183,7 @@ namespace Newton2D {
             setPosition(position);
             setLinearVelocity(velocity);
             setAngle(angle);
+            setMass(mass);
         }
 
         unsigned int getWidth()  const { return getDerivedShape().width;  }

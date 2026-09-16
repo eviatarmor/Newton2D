@@ -64,7 +64,7 @@ namespace Newton2D {
          *   Expecting an angle and it's angular unit.
          */
         explicit Angle(float value, AngularUnit unit) noexcept { 
-            rad = unit == AngularUnit::Radians ? rad : ((value) * PI / 180.f); 
+            rad = unit == AngularUnit::Radians ? value : (value * PI / 180.f); 
         }
 
         /*
@@ -72,7 +72,7 @@ namespace Newton2D {
          */
         Angle(float radians) { rad = radians; }
 
-        Angle() = default;
+        Angle() : rad(0.f) {}
 
         /*
          *   returning the angle in radians.
