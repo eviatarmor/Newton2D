@@ -83,6 +83,9 @@ namespace Newton2D {
             VecF  getLinearVelocity()   const { return particle.lvel;  }
             float getAngularVelocity()  const { return particle.avel;  }
             float getMass()             const { return shape->mass;    }
+            ShapeKind shapeKind()       const { return shape->kind();  }
+            BaseShape* getShape()             { return shape.get();    }
+            const BaseShape* getShape() const { return shape.get();    }
 
             void accept(ShapeVisitor& visitor) { shape->accept(visitor); }
             void accept(ConstShapeVisitor& visitor) const { shape->accept(visitor); }
