@@ -51,7 +51,9 @@
 #include <functional>
 #include <vector>
 
+#include "CollisionResolution.hpp"
 #include "Rigidbody.hpp"
+#include "SurfaceGravity.hpp"
 
 namespace Newton2D
 {
@@ -63,13 +65,39 @@ namespace Newton2D
         void push_back(impl::BaseRigidbody& rb) { rigids.push_back(rb); }
         void pop_back()                         { rigids.pop_back();    }
         void clear()                            { rigids.clear();       }
+        void setAccuracy(Accuracy value)        { accuracy = value;     }
 
-        void loop() 
-        { 
-            
+        void loop(float dt = 1.f / 60.f, float gravity = SurfaceGravity::Earth)
+        {
+            for (auto& ref : rigids)
+            {
+                impl::BaseRigidbody& rb = ref.get();
+                if (rb.getMass() <= 0.f)
+                    continue;
+
+                VecF v = rb.getLinearVelocity();
+                v.y += gravity * dt;
+                rb.setLinearVelocity(v);
+
+                VecF p = rb.getPosition();
+                p.x += v.x * dt;
+                p.y += v.y * dt;
+                rb.setPosition(p);
+            }
+
+            const int iterations = (accuracy == Accuracy::Good) ? 8 : 4;
+            for (int k = 0; k < iterations; ++k)
+            {
+                for (std::size_t i = 0; i < rigids.size(); ++i)
+                {
+                    for (std::size_t j = i + 1; j < rigids.size(); ++j)
+                        impl::CollisionResolution::resolve(rigids[i].get(), rigids[j].get());
+                }
+            }
         }
     
     private:
+        Accuracy accuracy = Accuracy::Good;
         std::vector<std::reference_wrapper<impl::BaseRigidbody>> rigids;
     };
 }

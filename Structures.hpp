@@ -58,9 +58,34 @@
 
 namespace Newton2D {
 
+    struct CircleShape;
+    struct QuadShape;
+    struct PolygonShape;
+    struct LineSegmentShape;
+
+    struct ShapeVisitor
+    {
+        virtual ~ShapeVisitor() = default;
+        virtual void visit(CircleShape&) = 0;
+        virtual void visit(QuadShape&) = 0;
+        virtual void visit(PolygonShape&) = 0;
+        virtual void visit(LineSegmentShape&) = 0;
+    };
+
+    struct ConstShapeVisitor
+    {
+        virtual ~ConstShapeVisitor() = default;
+        virtual void visit(const CircleShape&) = 0;
+        virtual void visit(const QuadShape&) = 0;
+        virtual void visit(const PolygonShape&) = 0;
+        virtual void visit(const LineSegmentShape&) = 0;
+    };
+
     struct BaseShape 
     {
         virtual ~BaseShape() = default;
+        virtual void accept(ShapeVisitor& visitor) = 0;
+        virtual void accept(ConstShapeVisitor& visitor) const = 0;
 
         float moment_of_inertia = 0.f;
         float mass = 1.f;
@@ -76,6 +101,9 @@ namespace Newton2D {
         PolygonShape(std::initializer_list<VecF>&& pts) 
             : points(pts.begin(), pts.end()) {}
 
+        void accept(ShapeVisitor& visitor) override { visitor.visit(*this); }
+        void accept(ConstShapeVisitor& visitor) const override { visitor.visit(*this); }
+
         std::vector<VecF> points;
     }; // PolygonShape
 
@@ -86,6 +114,9 @@ namespace Newton2D {
         QuadShape() = default;
         QuadShape(unsigned int w, unsigned h) 
             : width(w), height(h) {}
+
+        void accept(ShapeVisitor& visitor) override { visitor.visit(*this); }
+        void accept(ConstShapeVisitor& visitor) const override { visitor.visit(*this); }
 
         unsigned int width = 0;
         unsigned int height = 0;
@@ -100,6 +131,9 @@ namespace Newton2D {
             : points{p1, p2} {}
         LineSegmentShape(const std::array<VecF, 2>& pts)
             : points(pts) {}
+
+        void accept(ShapeVisitor& visitor) override { visitor.visit(*this); }
+        void accept(ConstShapeVisitor& visitor) const override { visitor.visit(*this); }
      
         std::array<VecF, 2> points;
     }; // LineSegmentShape
@@ -111,6 +145,9 @@ namespace Newton2D {
         CircleShape() = default;
         CircleShape(float r) 
             : radius(r) {}
+
+        void accept(ShapeVisitor& visitor) override { visitor.visit(*this); }
+        void accept(ConstShapeVisitor& visitor) const override { visitor.visit(*this); }
 
         float radius = 0.f;
     }; // CircleShape
