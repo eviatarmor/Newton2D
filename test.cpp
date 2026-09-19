@@ -74,56 +74,67 @@ void draw_body(sf::RenderWindow& window, Newton2D::impl::BaseRigidbody& rb, bool
     const sf::Uint8 alpha = ghost ? 90 : 255;
     const auto pos = rb.getPosition();
 
-    if (auto* circle = Newton2D::as_shape<Newton2D::CircleShape>(rb.getShape()))
+    struct Draw : Newton2D::ConstShapeVisitor
     {
-        const float r = circle->radius;
-        sf::CircleShape draw;
-        style_shape(draw,
-                    with_alpha(sf::Color(232, 126, 74), alpha),
-                    with_alpha(sf::Color(40, 24, 16), alpha));
-        draw.setRadius(r);
-        draw.setOrigin(r, r);
-        draw.setPosition(pos.x, pos.y);
-        window.draw(draw);
-        return;
-    }
+        Draw(sf::RenderWindow& window, Newton2D::impl::BaseRigidbody& rb,
+             Newton2D::VecF pos, sf::Uint8 alpha)
+            : window(window), rb(rb), pos(pos), alpha(alpha) {}
 
-    if (auto* box = Newton2D::as_shape<Newton2D::QuadShape>(rb.getShape()))
-    {
-        const float w = static_cast<float>(box->width);
-        const float h = static_cast<float>(box->height);
-        sf::RectangleShape draw;
-        style_shape(draw,
-                    with_alpha(sf::Color(72, 175, 184), alpha),
-                    with_alpha(sf::Color(20, 40, 48), alpha));
-        draw.setSize(sf::Vector2f(w, h));
-        draw.setOrigin(w * 0.5f, h * 0.5f);
-        draw.setPosition(pos.x, pos.y);
-        draw.setRotation(rb.getAngle().degrees());
-        window.draw(draw);
-        return;
-    }
+        sf::RenderWindow& window;
+        Newton2D::impl::BaseRigidbody& rb;
+        Newton2D::VecF pos;
+        sf::Uint8 alpha;
 
-    if (auto* tri = Newton2D::as_shape<Newton2D::PolygonShape>(rb.getShape()))
-    {
-        const auto& pts = tri->points;
-        sf::ConvexShape draw;
-        draw.setPointCount(static_cast<unsigned int>(pts.size()));
-        style_shape(draw,
-                    with_alpha(sf::Color(168, 108, 203), alpha),
-                    with_alpha(sf::Color(40, 20, 50), alpha));
-        for (std::size_t i = 0; i < pts.size(); ++i)
-            draw.setPoint(i, world_point(pts[i], pos, rb.getAngle()));
-        window.draw(draw);
-        return;
-    }
+        void visit(const Newton2D::CircleShape& circle) override
+        {
+            const float r = circle.radius;
+            sf::CircleShape draw;
+            style_shape(draw,
+                        with_alpha(sf::Color(232, 126, 74), alpha),
+                        with_alpha(sf::Color(40, 24, 16), alpha));
+            draw.setRadius(r);
+            draw.setOrigin(r, r);
+            draw.setPosition(pos.x, pos.y);
+            window.draw(draw);
+        }
 
-    if (auto* line = Newton2D::as_shape<Newton2D::LineSegmentShape>(rb.getShape()))
-    {
-        draw_line_body(window, rb, *line,
-                       with_alpha(sf::Color(196, 164, 108), alpha),
-                       with_alpha(sf::Color(50, 36, 20), alpha));
-    }
+        void visit(const Newton2D::QuadShape& box) override
+        {
+            const float w = static_cast<float>(box.width);
+            const float h = static_cast<float>(box.height);
+            sf::RectangleShape draw;
+            style_shape(draw,
+                        with_alpha(sf::Color(72, 175, 184), alpha),
+                        with_alpha(sf::Color(20, 40, 48), alpha));
+            draw.setSize(sf::Vector2f(w, h));
+            draw.setOrigin(w * 0.5f, h * 0.5f);
+            draw.setPosition(pos.x, pos.y);
+            draw.setRotation(rb.getAngle().degrees());
+            window.draw(draw);
+        }
+
+        void visit(const Newton2D::PolygonShape& tri) override
+        {
+            const auto& pts = tri.points;
+            sf::ConvexShape draw;
+            draw.setPointCount(static_cast<unsigned int>(pts.size()));
+            style_shape(draw,
+                        with_alpha(sf::Color(168, 108, 203), alpha),
+                        with_alpha(sf::Color(40, 20, 50), alpha));
+            for (std::size_t i = 0; i < pts.size(); ++i)
+                draw.setPoint(i, world_point(pts[i], pos, rb.getAngle()));
+            window.draw(draw);
+        }
+
+        void visit(const Newton2D::LineSegmentShape& line) override
+        {
+            draw_line_body(window, rb, line,
+                           with_alpha(sf::Color(196, 164, 108), alpha),
+                           with_alpha(sf::Color(50, 36, 20), alpha));
+        }
+    } visitor{ window, rb, pos, alpha };
+
+    rb.accept(visitor);
 }
 
 std::unique_ptr<Newton2D::impl::BaseRigidbody> make_shape(Tool tool, Newton2D::VecF pos)
