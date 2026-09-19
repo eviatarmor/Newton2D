@@ -68,17 +68,73 @@ namespace Newton2D {
 
             static void resolve(BaseRigidbody& a, BaseRigidbody& b)
             {
-                auto* ca = dynamic_cast<CircleShape*>(a.shape.get());
-                auto* cb = dynamic_cast<CircleShape*>(b.shape.get());
-                auto* qa = dynamic_cast<QuadShape*>(a.shape.get());
-                auto* qb = dynamic_cast<QuadShape*>(b.shape.get());
+                struct AgainstCircle : ShapeVisitor
+                {
+                    AgainstCircle(BaseRigidbody& a_rb, CircleShape& ca, BaseRigidbody& b_rb)
+                        : a_rb(a_rb), ca(ca), b_rb(b_rb) {}
 
-                if (ca && cb)
-                    circle_circle(a, *ca, b, *cb);
-                else if (ca && qb)
-                    circle_quad(a, *ca, b, *qb);
-                else if (qa && cb)
-                    circle_quad(b, *cb, a, *qa);
+                    BaseRigidbody& a_rb;
+                    CircleShape& ca;
+                    BaseRigidbody& b_rb;
+
+                    void visit(CircleShape& cb) override
+                    {
+                        circle_circle(a_rb, ca, b_rb, cb);
+                    }
+
+                    void visit(QuadShape& qb) override
+                    {
+                        circle_quad(a_rb, ca, b_rb, qb);
+                    }
+
+                    void visit(PolygonShape&) override {}
+                    void visit(LineSegmentShape&) override {}
+                };
+
+                struct AgainstQuad : ShapeVisitor
+                {
+                    AgainstQuad(BaseRigidbody& a_rb, QuadShape& qa, BaseRigidbody& b_rb)
+                        : a_rb(a_rb), qa(qa), b_rb(b_rb) {}
+
+                    BaseRigidbody& a_rb;
+                    QuadShape& qa;
+                    BaseRigidbody& b_rb;
+
+                    void visit(CircleShape& cb) override
+                    {
+                        circle_quad(b_rb, cb, a_rb, qa);
+                    }
+
+                    void visit(QuadShape&) override {}
+                    void visit(PolygonShape&) override {}
+                    void visit(LineSegmentShape&) override {}
+                };
+
+                struct First : ShapeVisitor
+                {
+                    First(BaseRigidbody& a_rb, BaseRigidbody& b_rb)
+                        : a_rb(a_rb), b_rb(b_rb) {}
+
+                    BaseRigidbody& a_rb;
+                    BaseRigidbody& b_rb;
+
+                    void visit(CircleShape& ca) override
+                    {
+                        AgainstCircle second(a_rb, ca, b_rb);
+                        b_rb.accept(second);
+                    }
+
+                    void visit(QuadShape& qa) override
+                    {
+                        AgainstQuad second(a_rb, qa, b_rb);
+                        b_rb.accept(second);
+                    }
+
+                    void visit(PolygonShape&) override {}
+                    void visit(LineSegmentShape&) override {}
+                } first(a, b);
+
+                a.accept(first);
             }
 
         private:
