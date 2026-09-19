@@ -159,6 +159,7 @@ namespace Newton2D {
         VecF  pos{};   // position
         VecF  lvel{};  // linear velocity
         Angle angle{}; // orientation
+        float avel = 0.f; // angular velocity (radians / second)
     }; // Particle
 
 }

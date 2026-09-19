@@ -71,12 +71,18 @@ namespace Newton2D {
             void setPosition(VecF position)       { particle.pos   = position; }
             void setAngle(Angle angle)            { particle.angle = angle;    }
             void setLinearVelocity(VecF velocity) { particle.lvel  = velocity; }
-            void setMass(float mass)              { shape->mass    = mass;     }
+            void setAngularVelocity(float omega)  { particle.avel  = omega;    }
+            void setMass(float mass)
+            {
+                shape->mass = mass;
+                updateInertia();
+            }
 
-            VecF  getPosition()       const { return particle.pos;   }
-            Angle getAngle()          const { return particle.angle; }
-            VecF  getLinearVelocity() const { return particle.lvel;  }
-            float getMass()           const { return shape->mass;    }
+            VecF  getPosition()         const { return particle.pos;   }
+            Angle getAngle()            const { return particle.angle; }
+            VecF  getLinearVelocity()   const { return particle.lvel;  }
+            float getAngularVelocity()  const { return particle.avel;  }
+            float getMass()             const { return shape->mass;    }
 
             void accept(ShapeVisitor& visitor) { shape->accept(visitor); }
             void accept(ConstShapeVisitor& visitor) const { shape->accept(visitor); }
@@ -84,6 +90,57 @@ namespace Newton2D {
             float getMomentOfInertia() const { return shape->moment_of_inertia; }
 
         protected:
+            void updateInertia()
+            {
+                if (!shape)
+                    return;
+
+                const float m = shape->mass;
+                if (m <= 0.f)
+                {
+                    shape->moment_of_inertia = 0.f;
+                    return;
+                }
+
+                struct Inertia : ConstShapeVisitor
+                {
+                    Inertia(float m, float& I) : m(m), I(I) {}
+
+                    float m;
+                    float& I;
+
+                    void visit(const CircleShape& c) override
+                    {
+                        I = 0.5f * m * c.radius * c.radius;
+                    }
+
+                    void visit(const QuadShape& q) override
+                    {
+                        const float w = static_cast<float>(q.width);
+                        const float h = static_cast<float>(q.height);
+                        I = m * (w * w + h * h) / 12.f;
+                    }
+
+                    void visit(const PolygonShape& p) override
+                    {
+                        float acc = 0.f;
+                        for (const auto& pt : p.points)
+                            acc += pt.x * pt.x + pt.y * pt.y;
+                        const float n = p.points.empty() ? 1.f : static_cast<float>(p.points.size());
+                        I = m * acc / n;
+                    }
+
+                    void visit(const LineSegmentShape& l) override
+                    {
+                        const float dx = l.points[1].x - l.points[0].x;
+                        const float dy = l.points[1].y - l.points[0].y;
+                        I = m * (dx * dx + dy * dy) / 12.f;
+                    }
+                } visitor(m, shape->moment_of_inertia);
+
+                shape->accept(visitor);
+            }
+
             std::unique_ptr<BaseShape> shape;
             Particle particle;
 
@@ -136,7 +193,7 @@ namespace Newton2D {
             setMass(mass);
         }
 
-        void  setRadius(float radius) { getDerivedShape().radius = radius; }
+        void  setRadius(float radius) { getDerivedShape().radius = radius; updateInertia(); }
         float getRadius() const       { return getDerivedShape().radius;   }
 
     }; // Rigidbody<Circle>  
@@ -192,8 +249,8 @@ namespace Newton2D {
         unsigned int getWidth()  const { return getDerivedShape().width;  }
         unsigned int getHeight() const { return getDerivedShape().height; }
 
-        void setWidth(unsigned int width)   { getDerivedShape().width = width;   }
-        void setHeight(unsigned int height) { getDerivedShape().height = height; }
+        void setWidth(unsigned int width)   { getDerivedShape().width = width;   updateInertia(); }
+        void setHeight(unsigned int height) { getDerivedShape().height = height; updateInertia(); }
     }; // Rigidbody<Quad>
 
     // ----------------------------------------------------------------------- //
