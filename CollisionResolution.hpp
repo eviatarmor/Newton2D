@@ -50,6 +50,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 #include "Core.hpp"
 #include "Rigidbody.hpp"
@@ -61,80 +63,120 @@ namespace Newton2D {
         class CollisionResolution
         {
         public:
-            static constexpr float restitution        = 0.4f;
+            static constexpr float restitution        = 0.35f;
             static constexpr float correction_percent = 0.8f;
             static constexpr float slop               = 0.05f;
             static constexpr float rest_threshold     = 25.f;
+            static constexpr float friction           = 0.55f;
+            static constexpr float line_thickness     = 8.f;
 
-            static void resolve(BaseRigidbody& a, BaseRigidbody& b)
+            struct Manifold
             {
+                bool  hit = false;
+                VecF  n{};
+                float pen = 0.f;
+                VecF  contact{};
+            };
+
+            static Manifold compute(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                Manifold m;
+
                 struct AgainstCircle : ShapeVisitor
                 {
-                    AgainstCircle(BaseRigidbody& a_rb, CircleShape& ca, BaseRigidbody& b_rb)
-                        : a_rb(a_rb), ca(ca), b_rb(b_rb) {}
+                    AgainstCircle(BaseRigidbody& a_rb, CircleShape& ca,
+                                  BaseRigidbody& b_rb, Manifold& out)
+                        : a_rb(a_rb), ca(ca), b_rb(b_rb), out(out) {}
 
                     BaseRigidbody& a_rb;
                     CircleShape& ca;
                     BaseRigidbody& b_rb;
+                    Manifold& out;
 
                     void visit(CircleShape& cb) override
                     {
-                        circle_circle(a_rb, ca, b_rb, cb);
+                        out = circle_circle(a_rb, ca, b_rb, cb);
                     }
 
-                    void visit(QuadShape& qb) override
+                    void visit(QuadShape&) override { vs_poly(); }
+                    void visit(PolygonShape&) override { vs_poly(); }
+                    void visit(LineSegmentShape&) override { vs_poly(); }
+
+                    void vs_poly()
                     {
-                        circle_quad(a_rb, ca, b_rb, qb);
+                        out = circle_poly(a_rb, ca, b_rb);
+                        out.n.x = -out.n.x;
+                        out.n.y = -out.n.y;
                     }
-
-                    void visit(PolygonShape&) override {}
-                    void visit(LineSegmentShape&) override {}
                 };
 
-                struct AgainstQuad : ShapeVisitor
+                struct AgainstPoly : ShapeVisitor
                 {
-                    AgainstQuad(BaseRigidbody& a_rb, QuadShape& qa, BaseRigidbody& b_rb)
-                        : a_rb(a_rb), qa(qa), b_rb(b_rb) {}
+                    AgainstPoly(BaseRigidbody& a_rb, BaseRigidbody& b_rb, Manifold& out)
+                        : a_rb(a_rb), b_rb(b_rb), out(out) {}
 
                     BaseRigidbody& a_rb;
-                    QuadShape& qa;
                     BaseRigidbody& b_rb;
+                    Manifold& out;
 
                     void visit(CircleShape& cb) override
                     {
-                        circle_quad(b_rb, cb, a_rb, qa);
+                        out = circle_poly(b_rb, cb, a_rb);
                     }
 
-                    void visit(QuadShape&) override {}
-                    void visit(PolygonShape&) override {}
-                    void visit(LineSegmentShape&) override {}
+                    void visit(QuadShape&) override { out = poly_poly(a_rb, b_rb); }
+                    void visit(PolygonShape&) override { out = poly_poly(a_rb, b_rb); }
+                    void visit(LineSegmentShape&) override { out = poly_poly(a_rb, b_rb); }
                 };
 
                 struct First : ShapeVisitor
                 {
-                    First(BaseRigidbody& a_rb, BaseRigidbody& b_rb)
-                        : a_rb(a_rb), b_rb(b_rb) {}
+                    First(BaseRigidbody& a_rb, BaseRigidbody& b_rb, Manifold& out)
+                        : a_rb(a_rb), b_rb(b_rb), out(out) {}
 
                     BaseRigidbody& a_rb;
                     BaseRigidbody& b_rb;
+                    Manifold& out;
 
                     void visit(CircleShape& ca) override
                     {
-                        AgainstCircle second(a_rb, ca, b_rb);
+                        AgainstCircle second(a_rb, ca, b_rb, out);
                         b_rb.accept(second);
                     }
 
-                    void visit(QuadShape& qa) override
+                    void visit(QuadShape&) override { vs_poly(); }
+                    void visit(PolygonShape&) override { vs_poly(); }
+                    void visit(LineSegmentShape&) override { vs_poly(); }
+
+                    void vs_poly()
                     {
-                        AgainstQuad second(a_rb, qa, b_rb);
+                        AgainstPoly second(a_rb, b_rb, out);
                         b_rb.accept(second);
                     }
-
-                    void visit(PolygonShape&) override {}
-                    void visit(LineSegmentShape&) override {}
-                } first(a, b);
+                } first(a, b, m);
 
                 a.accept(first);
+                return m;
+            }
+
+            static void separate(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                const Manifold m = compute(a, b);
+                if (m.hit)
+                    apply_positional_correction(a, b, m.n, m.pen);
+            }
+
+            static void bounce(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                const Manifold m = compute(a, b);
+                if (m.hit)
+                    apply_velocity_response(a, b, m.n, m.contact);
+            }
+
+            static void resolve(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                separate(a, b);
+                bounce(a, b);
             }
 
         private:
@@ -142,6 +184,265 @@ namespace Newton2D {
             {
                 const float m = rb.getMass();
                 return m > 0.f ? 1.f / m : 0.f;
+            }
+
+            static float inv_inertia(const BaseRigidbody& rb)
+            {
+                if (rb.getMass() <= 0.f)
+                    return 0.f;
+                const float I = rb.getMomentOfInertia();
+                return I > 1e-8f ? 1.f / I : 0.f;
+            }
+
+            static float cross(const VecF& a, const VecF& b)
+            {
+                return a.x * b.y - a.y * b.x;
+            }
+
+            static VecF cross(float s, const VecF& v)
+            {
+                return VecF(-s * v.y, s * v.x);
+            }
+
+            static VecF support(const std::vector<VecF>& verts, const VecF& dir)
+            {
+                std::size_t best = 0;
+                float best_d = verts[0].x * dir.x + verts[0].y * dir.y;
+                for (std::size_t i = 1; i < verts.size(); ++i)
+                {
+                    const float d = verts[i].x * dir.x + verts[i].y * dir.y;
+                    if (d > best_d)
+                    {
+                        best_d = d;
+                        best = i;
+                    }
+                }
+                return verts[best];
+            }
+
+            static VecF rotate_local(const VecF& local, const VecF& pos, float c, float s)
+            {
+                return VecF(pos.x + local.x * c - local.y * s,
+                            pos.y + local.x * s + local.y * c);
+            }
+
+            static std::vector<VecF> world_vertices(const BaseRigidbody& rb)
+            {
+                const VecF pos = rb.getPosition();
+                const float rad = rb.getAngle().radians();
+                const float c = cosf(rad);
+                const float s = sinf(rad);
+                std::vector<VecF> verts;
+
+                struct Vertices : ConstShapeVisitor
+                {
+                    Vertices(const VecF& pos, float c, float s, std::vector<VecF>& verts)
+                        : pos(pos), c(c), s(s), verts(verts) {}
+
+                    const VecF& pos;
+                    float c;
+                    float s;
+                    std::vector<VecF>& verts;
+
+                    void visit(const CircleShape&) override {}
+
+                    void visit(const QuadShape& q) override
+                    {
+                        const float hw = static_cast<float>(q.width)  * 0.5f;
+                        const float hh = static_cast<float>(q.height) * 0.5f;
+                        verts = {
+                            rotate_local(VecF(-hw, -hh), pos, c, s),
+                            rotate_local(VecF( hw, -hh), pos, c, s),
+                            rotate_local(VecF( hw,  hh), pos, c, s),
+                            rotate_local(VecF(-hw,  hh), pos, c, s)
+                        };
+                    }
+
+                    void visit(const PolygonShape& p) override
+                    {
+                        verts.reserve(p.points.size());
+                        for (const auto& pt : p.points)
+                            verts.push_back(rotate_local(pt, pos, c, s));
+                    }
+
+                    void visit(const LineSegmentShape& l) override
+                    {
+                        const VecF a = rotate_local(l.points[0], pos, c, s);
+                        const VecF b = rotate_local(l.points[1], pos, c, s);
+                        const float dx = b.x - a.x;
+                        const float dy = b.y - a.y;
+                        const float mag = sqrtf(dx * dx + dy * dy);
+                        VecF n = mag > 1e-6f ? VecF(-dy / mag, dx / mag) : VecF(0.f, -1.f);
+                        n.x *= line_thickness * 0.5f;
+                        n.y *= line_thickness * 0.5f;
+                        verts = {
+                            VecF(a.x + n.x, a.y + n.y),
+                            VecF(b.x + n.x, b.y + n.y),
+                            VecF(b.x - n.x, b.y - n.y),
+                            VecF(a.x - n.x, a.y - n.y)
+                        };
+                    }
+                } visitor(pos, c, s, verts);
+
+                rb.accept(visitor);
+                return verts;
+            }
+
+            static VecF centroid(const std::vector<VecF>& verts)
+            {
+                VecF c{};
+                if (verts.empty())
+                    return c;
+                for (const auto& v : verts)
+                {
+                    c.x += v.x;
+                    c.y += v.y;
+                }
+                const float inv = 1.f / static_cast<float>(verts.size());
+                c.x *= inv;
+                c.y *= inv;
+                return c;
+            }
+
+            static void project(const std::vector<VecF>& verts, const VecF& axis, float& mn, float& mx)
+            {
+                mn = mx = verts[0].x * axis.x + verts[0].y * axis.y;
+                for (std::size_t i = 1; i < verts.size(); ++i)
+                {
+                    const float p = verts[i].x * axis.x + verts[i].y * axis.y;
+                    mn = std::min(mn, p);
+                    mx = std::max(mx, p);
+                }
+            }
+
+            static bool overlap_axis(const std::vector<VecF>& a, const std::vector<VecF>& b,
+                                     VecF axis, float& min_overlap, VecF& best)
+            {
+                const float mag = sqrtf(axis.x * axis.x + axis.y * axis.y);
+                if (mag < 1e-8f)
+                    return true;
+                axis.x /= mag;
+                axis.y /= mag;
+
+                float amin, amax, bmin, bmax;
+                project(a, axis, amin, amax);
+                project(b, axis, bmin, bmax);
+                const float o = std::min(amax, bmax) - std::max(amin, bmin);
+                if (o <= 0.f)
+                    return false;
+                if (o < min_overlap)
+                {
+                    min_overlap = o;
+                    best = axis;
+                }
+                return true;
+            }
+
+            static bool sat(const std::vector<VecF>& a, const std::vector<VecF>& b, VecF& n, float& pen)
+            {
+                if (a.size() < 2 || b.size() < 2)
+                    return false;
+
+                float min_overlap = std::numeric_limits<float>::infinity();
+                VecF best{};
+
+                auto test_edges = [&](const std::vector<VecF>& verts) {
+                    for (std::size_t i = 0; i < verts.size(); ++i)
+                    {
+                        const VecF& p = verts[i];
+                        const VecF& q = verts[(i + 1) % verts.size()];
+                        if (!overlap_axis(a, b, VecF(-(q.y - p.y), q.x - p.x), min_overlap, best))
+                            return false;
+                    }
+                    return true;
+                };
+
+                if (!test_edges(a) || !test_edges(b))
+                    return false;
+
+                const VecF ca = centroid(a);
+                const VecF cb = centroid(b);
+                if ((cb.x - ca.x) * best.x + (cb.y - ca.y) * best.y < 0.f)
+                {
+                    best.x = -best.x;
+                    best.y = -best.y;
+                }
+
+                n = best;
+                pen = min_overlap;
+                return true;
+            }
+
+            static bool circle_vs_poly(const VecF& center, float radius,
+                                       const std::vector<VecF>& poly, VecF& n, float& pen)
+            {
+                if (poly.size() < 2)
+                    return false;
+
+                float min_overlap = std::numeric_limits<float>::infinity();
+                VecF best{};
+
+                auto project_circle = [&](const VecF& axis, float& mn, float& mx) {
+                    const float mid = center.x * axis.x + center.y * axis.y;
+                    mn = mid - radius;
+                    mx = mid + radius;
+                };
+
+                auto overlap = [&](VecF axis) {
+                    const float mag = sqrtf(axis.x * axis.x + axis.y * axis.y);
+                    if (mag < 1e-8f)
+                        return true;
+                    axis.x /= mag;
+                    axis.y /= mag;
+
+                    float pmin, pmax, cmin, cmax;
+                    project(poly, axis, pmin, pmax);
+                    project_circle(axis, cmin, cmax);
+                    const float o = std::min(pmax, cmax) - std::max(pmin, cmin);
+                    if (o <= 0.f)
+                        return false;
+                    if (o < min_overlap)
+                    {
+                        min_overlap = o;
+                        best = axis;
+                    }
+                    return true;
+                };
+
+                for (std::size_t i = 0; i < poly.size(); ++i)
+                {
+                    const VecF& p = poly[i];
+                    const VecF& q = poly[(i + 1) % poly.size()];
+                    if (!overlap(VecF(-(q.y - p.y), q.x - p.x)))
+                        return false;
+                }
+
+                std::size_t closest = 0;
+                float best_d2 = std::numeric_limits<float>::infinity();
+                for (std::size_t i = 0; i < poly.size(); ++i)
+                {
+                    const float dx = center.x - poly[i].x;
+                    const float dy = center.y - poly[i].y;
+                    const float d2 = dx * dx + dy * dy;
+                    if (d2 < best_d2)
+                    {
+                        best_d2 = d2;
+                        closest = i;
+                    }
+                }
+                if (!overlap(VecF(center.x - poly[closest].x, center.y - poly[closest].y)))
+                    return false;
+
+                const VecF pc = centroid(poly);
+                if ((center.x - pc.x) * best.x + (center.y - pc.y) * best.y < 0.f)
+                {
+                    best.x = -best.x;
+                    best.y = -best.y;
+                }
+
+                n = best;
+                pen = min_overlap;
+                return true;
             }
 
             static void apply_positional_correction(BaseRigidbody& a, BaseRigidbody& b,
@@ -164,7 +465,8 @@ namespace Newton2D {
                 b.setPosition(pb);
             }
 
-            static void apply_velocity_response(BaseRigidbody& a, BaseRigidbody& b, const VecF& n)
+            static void apply_velocity_response(BaseRigidbody& a, BaseRigidbody& b,
+                                                const VecF& n, const VecF&)
             {
                 const float ima = inv_mass(a);
                 const float imb = inv_mass(b);
@@ -192,9 +494,10 @@ namespace Newton2D {
                 b.setLinearVelocity(vb);
             }
 
-            static void circle_circle(BaseRigidbody& a, const CircleShape& sa,
-                                      BaseRigidbody& b, const CircleShape& sb)
+            static Manifold circle_circle(BaseRigidbody& a, const CircleShape& sa,
+                                          BaseRigidbody& b, const CircleShape& sb)
             {
+                Manifold m;
                 const VecF pa = a.getPosition();
                 const VecF pb = b.getPosition();
                 const float dx = pb.x - pa.x;
@@ -203,80 +506,57 @@ namespace Newton2D {
                 const float min_dist = sa.radius + sb.radius;
 
                 if (dist >= min_dist)
-                    return;
+                    return m;
 
-                VecF n;
                 if (dist > 1e-6f)
                 {
-                    n.x = dx / dist;
-                    n.y = dy / dist;
+                    m.n.x = dx / dist;
+                    m.n.y = dy / dist;
                 }
                 else
                 {
-                    n.x = 0.f;
-                    n.y = -1.f;
+                    m.n.x = 0.f;
+                    m.n.y = -1.f;
                 }
 
-                apply_positional_correction(a, b, n, min_dist - dist);
-                apply_velocity_response(a, b, n);
+                m.hit = true;
+                m.pen = min_dist - dist;
+                m.contact = VecF(pa.x + m.n.x * sa.radius, pa.y + m.n.y * sa.radius);
+                return m;
             }
 
-            static void circle_quad(BaseRigidbody& circle_rb, const CircleShape& circle,
-                                    BaseRigidbody& quad_rb, const QuadShape& quad)
+            static Manifold circle_poly(BaseRigidbody& circle_rb, const CircleShape& circle,
+                                        BaseRigidbody& poly_rb)
             {
+                Manifold m;
+                const auto verts = world_vertices(poly_rb);
+                if (!circle_vs_poly(circle_rb.getPosition(), circle.radius, verts, m.n, m.pen))
+                    return m;
+
                 const VecF c = circle_rb.getPosition();
-                const VecF q = quad_rb.getPosition();
-                const float hw = static_cast<float>(quad.width)  * 0.5f;
-                const float hh = static_cast<float>(quad.height) * 0.5f;
-                const float left   = q.x - hw;
-                const float right  = q.x + hw;
-                const float top    = q.y - hh;
-                const float bottom = q.y + hh;
+                m.hit = true;
+                m.contact = VecF(c.x - m.n.x * circle.radius, c.y - m.n.y * circle.radius);
+                return m;
+            }
 
-                const bool inside = c.x > left && c.x < right && c.y > top && c.y < bottom;
+            static Manifold poly_poly(BaseRigidbody& a, BaseRigidbody& b)
+            {
+                Manifold m;
+                const auto va = world_vertices(a);
+                const auto vb = world_vertices(b);
+                if (!sat(va, vb, m.n, m.pen))
+                    return m;
 
-                VecF n;
-                float penetration = 0.f;
-
-                if (inside)
-                {
-                    const float dl = c.x - left;
-                    const float dr = right - c.x;
-                    const float dt = c.y - top;
-                    const float db = bottom - c.y;
-                    const float m = std::min(std::min(dl, dr), std::min(dt, db));
-
-                    if (m == dl)      { n = VecF(-1.f,  0.f); penetration = circle.radius + dl; }
-                    else if (m == dr) { n = VecF( 1.f,  0.f); penetration = circle.radius + dr; }
-                    else if (m == dt) { n = VecF( 0.f, -1.f); penetration = circle.radius + dt; }
-                    else              { n = VecF( 0.f,  1.f); penetration = circle.radius + db; }
-                }
+                const VecF sa = support(va, m.n);
+                const VecF sb = support(vb, VecF(-m.n.x, -m.n.y));
+                m.hit = true;
+                if (inv_mass(b) == 0.f && inv_mass(a) > 0.f)
+                    m.contact = sa;
+                else if (inv_mass(a) == 0.f && inv_mass(b) > 0.f)
+                    m.contact = sb;
                 else
-                {
-                    const float closest_x = std::clamp(c.x, left, right);
-                    const float closest_y = std::clamp(c.y, top, bottom);
-                    const float dx = c.x - closest_x;
-                    const float dy = c.y - closest_y;
-                    const float dist = sqrtf(dx * dx + dy * dy);
-
-                    if (dist >= circle.radius)
-                        return;
-
-                    if (dist > 1e-6f)
-                    {
-                        n.x = dx / dist;
-                        n.y = dy / dist;
-                    }
-                    else
-                    {
-                        n.x = 0.f;
-                        n.y = -1.f;
-                    }
-                    penetration = circle.radius - dist;
-                }
-
-                apply_positional_correction(quad_rb, circle_rb, n, penetration);
-                apply_velocity_response(quad_rb, circle_rb, n);
+                    m.contact = VecF(0.5f * (sa.x + sb.x), 0.5f * (sa.y + sb.y));
+                return m;
             }
         };
 
