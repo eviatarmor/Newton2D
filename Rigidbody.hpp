@@ -78,6 +78,9 @@ namespace Newton2D {
             VecF  getLinearVelocity() const { return particle.lvel;  }
             float getMass()           const { return shape->mass;    }
 
+            void accept(ShapeVisitor& visitor) { shape->accept(visitor); }
+            void accept(ConstShapeVisitor& visitor) const { shape->accept(visitor); }
+
             float getMomentOfInertia() const { return shape->moment_of_inertia; }
 
         protected:
@@ -103,8 +106,8 @@ namespace Newton2D {
     private:
         using Type = CircleShape;
         
-        Type& getDerivedShape()             { return dynamic_cast<Type&>(*shape); }
-        const Type& getDerivedShape() const { return dynamic_cast<Type&>(*shape); }
+        Type& getDerivedShape()             { return static_cast<Type&>(*shape); }
+        const Type& getDerivedShape() const { return static_cast<const Type&>(*shape); }
 
     public:
         Rigidbody() { shape = std::make_unique<Type>(); }
@@ -146,8 +149,8 @@ namespace Newton2D {
     private:
         using Type = QuadShape;
         
-        Type& getDerivedShape()             { return dynamic_cast<Type&>(*shape); }
-        const Type& getDerivedShape() const { return dynamic_cast<Type&>(*shape); }
+        Type& getDerivedShape()             { return static_cast<Type&>(*shape); }
+        const Type& getDerivedShape() const { return static_cast<const Type&>(*shape); }
     
     public: 
         Rigidbody() { shape = std::make_unique<Type>(); }
@@ -201,8 +204,8 @@ namespace Newton2D {
     private:
         using Type = PolygonShape;
         
-        Type& getDerivedShape()             { return dynamic_cast<Type&>(*shape); }
-        const Type& getDerivedShape() const { return dynamic_cast<Type&>(*shape); }
+        Type& getDerivedShape()             { return static_cast<Type&>(*shape); }
+        const Type& getDerivedShape() const { return static_cast<const Type&>(*shape); }
 
     public:
         Rigidbody() { shape = std::make_unique<Type>(); }
@@ -294,8 +297,8 @@ namespace Newton2D {
     private:
         using Type = LineSegmentShape;
         
-        Type& getDerivedShape()             { return dynamic_cast<Type&>(*shape); }
-        const Type& getDerivedShape() const { return dynamic_cast<Type&>(*shape); }
+        Type& getDerivedShape()             { return static_cast<Type&>(*shape); }
+        const Type& getDerivedShape() const { return static_cast<const Type&>(*shape); }
 
     public:
         Rigidbody() { shape = std::make_unique<Type>(); }
